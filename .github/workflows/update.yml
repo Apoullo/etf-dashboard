@@ -1,0 +1,41 @@
+name: Update Dashboard
+
+on:
+  schedule:
+    # UTC 22:00 Mon-Fri = Taiwan 06:00 (after US market close)
+    - cron: '0 22 * * 1-5'
+  workflow_dispatch: {}
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Fetch portfolio data
+        run: python generate_dashboard_data.py
+
+      - name: Analyze all ETFs
+        run: python analyze_all_etfs.py
+
+      - name: Build dashboard
+        run: python build_dashboard.py
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./charts
+          publish_branch: gh-pages
+          exclude_assets: '*.json'
