@@ -100,10 +100,11 @@ ETF_CATALOG = [
 ]
 
 
-def build_html(data: dict, analysis: dict | None = None) -> str:
+def build_html(data: dict, analysis: dict | None = None, ai_signals: dict | None = None) -> str:
     data_json = json.dumps(data, ensure_ascii=False)
     catalog_json = json.dumps(ETF_CATALOG, ensure_ascii=False)
     analysis_json = json.dumps(analysis or {"etfs": []}, ensure_ascii=False)
+    signals_json = json.dumps(ai_signals or {"signals": {}}, ensure_ascii=False)
 
     return f"""<!DOCTYPE html>
 <html lang="zh-TW">
@@ -241,6 +242,14 @@ tr:hover {{ background:var(--surface2); }}
         <tbody id="alloc-tbody"></tbody>
         <tfoot id="alloc-tfoot"></tfoot>
       </table>
+      <div style="margin-top:16px;display:flex;gap:10px;align-items:center;">
+        <button onclick="exportPortfolio()" style="padding:8px 16px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);cursor:pointer;font-size:12px;">匯出組合</button>
+        <label style="padding:8px 16px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);cursor:pointer;font-size:12px;">
+          匯入組合
+          <input type="file" accept=".json" style="display:none;" onchange="importPortfolio(this.files[0])">
+        </label>
+        <button onclick="localStorage.removeItem(PORTFOLIO_KEY);location.reload();" style="padding:8px 16px;background:#ef444418;border:1px solid #ef444433;border-radius:8px;color:#ef4444;cursor:pointer;font-size:12px;">重置為預設</button>
+      </div>
     </div>
   </div>
 
@@ -378,6 +387,98 @@ tr:hover {{ background:var(--surface2); }}
 const DATA = {data_json};
 const CATALOG = {catalog_json};
 const ANALYSIS = {analysis_json};
+const AI_SIGNALS = {signals_json};
+
+// Portfolio localStorage management
+const PORTFOLIO_KEY = 'etf_portfolio';
+
+function loadLocalPortfolio() {{
+  const saved = localStorage.getItem(PORTFOLIO_KEY);
+  if (saved) {{ try {{ return JSON.parse(saved); }} catch(e) {{}} }}
+  return DATA.portfolio.flatMap(g => g.items.map(it => ({{
+    ticker: it.ticker, weight: it.weight, categoryZh: g.categoryZh, color: it.color
+  }})));
+}}
+
+function saveLocalPortfolio(holdings) {{
+  localStorage.setItem(PORTFOLIO_KEY, JSON.stringify(holdings));
+}}
+
+function isInPortfolio(ticker) {{
+  return myPortfolio.some(h => h.ticker === ticker);
+}}
+
+function addToPortfolio(ticker) {{
+  if (isInPortfolio(ticker)) return;
+  const etf = (ANALYSIS.etfs || []).find(e => e.ticker === ticker);
+  if (!etf) return;
+  myPortfolio.push({{ticker, weight: 5, categoryZh: etf.cat, color: etf.catColor}});
+  saveLocalPortfolio(myPortfolio);
+  renderCatalog();
+}}
+
+function removeFromPortfolio(ticker) {{
+  myPortfolio = myPortfolio.filter(h => h.ticker !== ticker);
+  saveLocalPortfolio(myPortfolio);
+  renderCatalog();
+  buildSliders();
+  recalcAlloc();
+}}
+
+function exportPortfolio() {{
+  const blob = new Blob([JSON.stringify({{holdings: myPortfolio}}, null, 2)], {{type: 'application/json'}});
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'portfolio.json'; a.click();
+}}
+
+function importPortfolio(file) {{
+  const reader = new FileReader();
+  reader.onload = (e) => {{
+    try {{
+      const d = JSON.parse(e.target.result);
+      if (d.holdings) {{ myPortfolio = d.holdings; saveLocalPortfolio(myPortfolio); buildSliders(); recalcAlloc(); }}
+    }} catch(err) {{ alert('格式錯誤'); }}
+  }};
+  reader.readAsText(file);
+}}
+
+let myPortfolio = loadLocalPortfolio();
+
+// Scoring functions
+function scoreETF(e) {{
+  let s = 0;
+  const er = e.er_num || parseER(e.expenseRatio);
+  const aum = e.aum_num || parseAUM(e.aumText);
+  if (er <= 0.5) s++; else if (er > 0.7) s--;
+  if (aum >= 2e8) s++; else if (aum < 5e7) s--;
+  if (e.avgVolume >= 100000) s++; else if (e.avgVolume && e.avgVolume < 10000) s--;
+  if (e.sharpe >= 1.0) s++; else if (e.sharpe < 0) s--;
+  if (e.maxDD > -20) s++; else if (e.maxDD < -30) s--;
+  if (e.volatility < 25) s++; else if (e.volatility > 40) s--;
+  if (e.beta && e.beta >= 0.5 && e.beta <= 1.5) s++; else if (e.beta && (e.beta > 2.0 || e.beta < 0)) s--;
+  return s;
+}}
+
+function scoreBadge(score) {{
+  if (score >= 6) return {{label:'\u5F37\u529B\u63A8\u85A6', color:'#059669', bg:'#05966915'}};
+  if (score >= 3) return {{label:'\u63A8\u85A6', color:'#34d399', bg:'#34d39915'}};
+  if (score >= 0) return {{label:'\u4E2D\u6027', color:'#fbbf24', bg:'#fbbf2415'}};
+  if (score >= -3) return {{label:'\u8B39\u614E', color:'#f97316', bg:'#f9731615'}};
+  return {{label:'\u4E0D\u63A8\u85A6', color:'#ef4444', bg:'#ef444415'}};
+}}
+
+function signalIcon(sig) {{
+  if (sig === 'bullish') return '<span style="color:#34d399;">&#9650;</span>';
+  if (sig === 'bearish') return '<span style="color:#ef4444;">&#9660;</span>';
+  if (sig === 'caution' || sig === 'warning') return '<span style="color:#f97316;">&#9679;</span>';
+  return '<span style="color:#fbbf24;">&#9644;</span>';
+}}
+
+function signalBg(sig) {{
+  if (sig === 'bullish') return '#34d39918';
+  if (sig === 'bearish') return '#ef444418';
+  if (sig === 'caution' || sig === 'warning') return '#f9731618';
+  return '#fbbf2418';
+}}
 
 const TABS = [
   {{id:'tab-alloc', label:'配置計算'}},
@@ -415,11 +516,20 @@ function switchTab(id) {{
 
 // ---- Allocation ----
 function buildSliders() {{
+  weights = {{}};
+  myPortfolio.forEach(h => weights[h.ticker] = h.weight);
   const c = document.getElementById('weight-sliders');
   let h = '';
-  DATA.portfolio.forEach(g => {{
-    h += `<div style="font-size:10px;font-weight:600;color:${{g.color}};letter-spacing:0.8px;text-transform:uppercase;margin:10px 0 4px;padding-left:2px;">${{g.categoryZh}}</div>`;
-    g.items.forEach(it => {{
+  const groups = {{}};
+  myPortfolio.forEach(item => {{
+    if (!groups[item.categoryZh]) groups[item.categoryZh] = [];
+    groups[item.categoryZh].push(item);
+  }});
+  Object.keys(groups).forEach(cat => {{
+    const items = groups[cat];
+    const catColor = items[0].color || 'var(--text2)';
+    h += `<div style="font-size:10px;font-weight:600;color:${{catColor}};letter-spacing:0.8px;text-transform:uppercase;margin:10px 0 4px;padding-left:2px;">${{cat}}</div>`;
+    items.forEach(it => {{
       h += `<div class="weight-row">
         <span class="ticker-label" style="color:${{it.color}}">${{it.ticker}}</span>
         <input type="range" min="0" max="50" value="${{it.weight}}" id="slider-${{it.ticker}}" oninput="onSlider('${{it.ticker}}',this.value)">
@@ -440,21 +550,22 @@ function recalcAlloc() {{
   document.getElementById('weight-total').innerHTML = `權重合計: <strong style="color:${{sumW===100?'#34d399':'#ef4444'}}">${{sumW}}%</strong> ${{sumW!==100?'(建議 100%)':''}}`;
 
   let rows='', totalActual=0;
-  DATA.portfolio.forEach(g => {{
-    g.items.forEach(it => {{
-      const w=weights[it.ticker], amt=total*w/100, pr=DATA.currentPrices[it.ticker];
-      const sh=Math.floor(amt/pr), act=sh*pr;
-      totalActual+=act;
-      rows+=`<tr>
-        <td class="ticker" style="color:${{it.color}}">${{it.ticker}}</td>
-        <td style="font-size:12px;">${{it.nameZh}}</td>
-        <td class="right mono">${{w}}%</td>
-        <td class="right mono">$${{amt.toLocaleString('en-US',{{minimumFractionDigits:0}})}}</td>
-        <td class="right mono">$${{pr.toFixed(2)}}</td>
-        <td class="right mono">${{sh}}</td>
-        <td class="right mono">$${{act.toLocaleString('en-US',{{minimumFractionDigits:0}})}}</td>
-      </tr>`;
-    }});
+  myPortfolio.forEach(item => {{
+    const t=item.ticker, w=weights[t]||0, amt=total*w/100, pr=DATA.currentPrices[t];
+    if (!pr) return;
+    const sh=Math.floor(amt/pr), act=sh*pr;
+    totalActual+=act;
+    const etf = analysisMap[t];
+    const nameZh = etf ? (etf.name||t) : t;
+    rows+=`<tr>
+      <td class="ticker" style="color:${{item.color}}">${{t}}</td>
+      <td style="font-size:12px;">${{nameZh}}</td>
+      <td class="right mono">${{w}}%</td>
+      <td class="right mono">$${{amt.toLocaleString('en-US',{{minimumFractionDigits:0}})}}</td>
+      <td class="right mono">$${{pr.toFixed(2)}}</td>
+      <td class="right mono">${{sh}}</td>
+      <td class="right mono">$${{act.toLocaleString('en-US',{{minimumFractionDigits:0}})}}</td>
+    </tr>`;
   }});
   const rem=total-totalActual;
   rows+=`<tr style="background:var(--surface2);"><td colspan="3" style="font-weight:600;">餘額現金</td><td colspan="4" class="right mono" style="font-weight:600;color:var(--accent);">$${{rem.toLocaleString('en-US',{{minimumFractionDigits:0}})}}</td></tr>`;
@@ -684,6 +795,35 @@ function showDetail(ticker) {{
       <div style="font-size:12px;">波動率: <span class="mono">${{fmt(e.volatility)}}%</span></div>
       <div style="font-size:12px;">Beta: <span class="mono">${{e.beta ? fmt(e.beta,2) : 'N/A'}}</span></div>
     </div>
+    ${{(() => {{
+      const sc = scoreETF({{...e, er_num:erNum, aum_num:aumNum}});
+      const bd = scoreBadge(sc);
+      return `<h4 style="font-size:14px;margin:16px 0 10px;color:#f5f5f0;">綜合評分</h4>
+      <div style="display:inline-block;padding:4px 14px;border-radius:10px;font-size:13px;font-weight:600;background:${{bd.bg}};color:${{bd.color}};border:1px solid ${{bd.color}}22;">${{bd.label}} (${{sc}}分)</div>`;
+    }})()}}
+    ${{(() => {{
+      const sig = (AI_SIGNALS.signals || {{}})[e.ticker];
+      if (!sig) return '';
+      const agentNames = {{technical: '\u6280\u8853\u9762', fundamental: '\u57FA\u672C\u9762', risk: '\u98A8\u63A7'}};
+      let h = '<h4 style="font-size:14px;margin:16px 0 10px;color:#f5f5f0;">AI \u4EE3\u7406\u4FE1\u865F</h4>';
+      const agents = sig.agents || {{}};
+      Object.keys(agents).forEach(k => {{
+        const a = agents[k];
+        h += `<div style="display:flex;align-items:center;gap:8px;padding:8px 12px;margin-bottom:6px;background:${{signalBg(a.signal)}};border-radius:8px;">
+          ${{signalIcon(a.signal)}}
+          <span style="font-weight:600;font-size:12px;min-width:50px;">${{agentNames[k]||k}}</span>
+          <span style="font-size:12px;color:var(--text2);">${{a.signal}} (${{a.confidence}}%)</span>
+          <span style="font-size:11px;color:var(--text3);margin-left:auto;">${{a.reasoning||''}}</span>
+        </div>`;
+      }});
+      if (sig.overall) {{
+        h += `<div style="margin-top:8px;padding:10px 14px;background:${{signalBg(sig.overall.signal)}};border:1px solid var(--border);border-radius:10px;">
+          <div style="font-size:13px;font-weight:600;">${{signalIcon(sig.overall.signal)}} \u7D9C\u5408\u5EFA\u8B70: ${{sig.overall.signal}} <span style="font-size:11px;font-weight:400;color:var(--text2);">(\u4FE1\u5FC3 ${{sig.overall.confidence}}%)</span></div>
+          <div style="font-size:12px;color:var(--text2);margin-top:4px;">${{sig.overall.reasoning||''}}</div>
+        </div>`;
+      }}
+      return h;
+    }})()}}
     <button onclick="closeDetail()" style="margin-top:20px;padding:8px 20px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);cursor:pointer;font-size:13px;">關閉</button>
   `;
   modal.style.display='block';
@@ -707,11 +847,15 @@ function renderCatalog() {{
   const arrow = (key) => sortKey===key ? (sortAsc?'&#9650;':'&#9660;') : '';
   let html = '';
 
+  flat.forEach(e => {{ e._score = scoreETF(e); }});
+
   if(viewMode==='table') {{
     html = `<div class="card" style="overflow-x:auto;"><table>
       <thead><tr>
+        <th style="width:36px;"></th>
         <th onclick="sortCatalog('ticker')">代碼${{arrow('ticker')}}</th>
         <th>類別</th>
+        <th class="right" onclick="sortCatalog('_score')">評分${{arrow('_score')}}</th>
         <th class="right" onclick="sortCatalog('price')">現價${{arrow('price')}}</th>
         <th class="right" onclick="sortCatalog('ret1y')">1Y報酬${{arrow('ret1y')}}</th>
         <th class="right" onclick="sortCatalog('ret6m')">6M${{arrow('ret6m')}}</th>
@@ -723,18 +867,25 @@ function renderCatalog() {{
       </tr></thead><tbody>`;
     flat.forEach(e => {{
       const erOk=e.er_num<=0.5, aumOk=e.aum_num>=2e8;
-      html += `<tr style="cursor:pointer;" onclick="showDetail('${{e.ticker}}')">
-        <td><span class="ticker" style="color:${{e.catColor}}">${{e.ticker}}</span>
+      const inP = isInPortfolio(e.ticker);
+      const badge = scoreBadge(e._score);
+      html += `<tr style="cursor:pointer;">
+        <td style="text-align:center;">` + (inP
+          ? `<button onclick="event.stopPropagation();removeFromPortfolio('${{e.ticker}}')" style="background:#ef444425;border:1px solid #ef444444;color:#ef4444;border-radius:50%;width:24px;height:24px;cursor:pointer;font-size:14px;line-height:1;" title="\u5F9E\u7D44\u5408\u79FB\u9664">-</button>`
+          : `<button onclick="event.stopPropagation();addToPortfolio('${{e.ticker}}')" style="background:#34d39925;border:1px solid #34d39944;color:#34d399;border-radius:50%;width:24px;height:24px;cursor:pointer;font-size:14px;line-height:1;" title="\u52A0\u5165\u7D44\u5408">+</button>`
+        ) + `</td>
+        <td onclick="showDetail('${{e.ticker}}')"><span class="ticker" style="color:${{e.catColor}}">${{e.ticker}}</span>
           ${{!aumOk?'<span style=\"font-size:9px;color:#ef4444;margin-left:3px;\">低AUM</span>':''}}</td>
-        <td style="font-size:11px;color:${{e.catColor}};white-space:nowrap;">${{e.cat}}</td>
-        <td class="right mono">$${{e.price}}</td>
-        <td class="right mono ${{clsPct(e.ret1y)}}">${{fmtPct(e.ret1y)}}</td>
-        <td class="right mono ${{clsPct(e.ret6m)}}">${{fmtPct(e.ret6m)}}</td>
-        <td class="right mono" style="color:${{e.sharpe>=1?'#34d399':e.sharpe>=0.5?'var(--text)':'#ef4444'}}">${{fmt(e.sharpe,2)}}</td>
-        <td class="right mono negative">${{fmt(e.maxDD)}}%</td>
-        <td class="right mono">${{fmt(e.volatility)}}%</td>
-        <td class="right mono" style="color:${{erOk?'var(--text)':'#ef4444'}}">${{e.expenseRatio}}</td>
-        <td class="right mono">${{e.pe ? fmt(e.pe)+'x' : '-'}}</td>
+        <td onclick="showDetail('${{e.ticker}}')" style="font-size:11px;color:${{e.catColor}};white-space:nowrap;">${{e.cat}}</td>
+        <td class="right" onclick="showDetail('${{e.ticker}}')"><span style="padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;background:${{badge.bg}};color:${{badge.color}};border:1px solid ${{badge.color}}22;">${{badge.label}}</span></td>
+        <td class="right mono" onclick="showDetail('${{e.ticker}}')">$${{e.price}}</td>
+        <td class="right mono ${{clsPct(e.ret1y)}}" onclick="showDetail('${{e.ticker}}')">${{fmtPct(e.ret1y)}}</td>
+        <td class="right mono ${{clsPct(e.ret6m)}}" onclick="showDetail('${{e.ticker}}')">${{fmtPct(e.ret6m)}}</td>
+        <td class="right mono" onclick="showDetail('${{e.ticker}}')" style="color:${{e.sharpe>=1?'#34d399':e.sharpe>=0.5?'var(--text)':'#ef4444'}}">${{fmt(e.sharpe,2)}}</td>
+        <td class="right mono negative" onclick="showDetail('${{e.ticker}}')">${{fmt(e.maxDD)}}%</td>
+        <td class="right mono" onclick="showDetail('${{e.ticker}}')">${{fmt(e.volatility)}}%</td>
+        <td class="right mono" onclick="showDetail('${{e.ticker}}')" style="color:${{erOk?'var(--text)':'#ef4444'}}">${{e.expenseRatio}}</td>
+        <td class="right mono" onclick="showDetail('${{e.ticker}}')">${{e.pe ? fmt(e.pe)+'x' : '-'}}</td>
       </tr>`;
     }});
     html += '</tbody></table></div>';
@@ -783,7 +934,12 @@ def main() -> None:
     if analysis_path.exists():
         analysis = json.loads(analysis_path.read_text(encoding="utf-8"))
 
-    html = build_html(data, analysis)
+    signals_path = root / "charts" / "ai_signals.json"
+    ai_signals = None
+    if signals_path.exists():
+        ai_signals = json.loads(signals_path.read_text(encoding="utf-8"))
+
+    html = build_html(data, analysis, ai_signals)
 
     out_path = root / "charts" / "index.html"
     out_path.write_text(html, encoding="utf-8")
