@@ -29,6 +29,9 @@ jobs:
       - name: Analyze all ETFs
         run: python analyze_all_etfs.py
 
+      - name: Run AI analyst
+        run: python ai_etf_analyst.py
+
       - name: Build dashboard
         run: python build_dashboard.py
 
