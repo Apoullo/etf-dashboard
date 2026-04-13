@@ -1,0 +1,14 @@
+{
+  "holdings": [
+    {"ticker": "VOO", "weight": 30, "categoryZh": "核心配置", "color": "#2563eb"},
+    {"ticker": "QQQM", "weight": 25, "categoryZh": "核心配置", "color": "#3b82f6"},
+    {"ticker": "SMH", "weight": 10, "categoryZh": "AI / 半導體", "color": "#8b5cf6"},
+    {"ticker": "AIQ", "weight": 5, "categoryZh": "AI / 半導體", "color": "#a78bfa"},
+    {"ticker": "GRID", "weight": 8, "categoryZh": "電力 / 核能", "color": "#10b981"},
+    {"ticker": "XLU", "weight": 5, "categoryZh": "電力 / 核能", "color": "#34d399"},
+    {"ticker": "NLR", "weight": 4, "categoryZh": "電力 / 核能", "color": "#6ee7b7"},
+    {"ticker": "OZEM", "weight": 5, "categoryZh": "GLP-1 減肥藥", "color": "#ef4444"},
+    {"ticker": "PPH", "weight": 4, "categoryZh": "GLP-1 減肥藥", "color": "#f87171"},
+    {"ticker": "BND", "weight": 4, "categoryZh": "現金 / 債券緩衝", "color": "#a8a29e"}
+  ]
+}

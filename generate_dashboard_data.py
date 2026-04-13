@@ -7,58 +7,69 @@ from pathlib import Path
 import pandas as pd
 import yfinance as yf
 
-PORTFOLIO = [
-    {
-        "category": "Core Holdings",
-        "categoryZh": "核心配置",
-        "color": "#1a3a5c",
-        "items": [
-            {"ticker": "VOO", "name": "Vanguard S&P 500 ETF", "nameZh": "Vanguard 標普500 ETF", "weight": 30, "expense": "0.03%", "desc": "S&P 500 大盤，最分散的核心基石", "color": "#2563eb"},
-            {"ticker": "QQQM", "name": "Invesco NASDAQ 100 ETF", "nameZh": "Invesco 那斯達克100 ETF", "weight": 25, "expense": "0.15%", "desc": "NASDAQ-100 科技成長，AI 天然曝險", "color": "#3b82f6"},
-        ],
-    },
-    {
-        "category": "AI & Semiconductors",
-        "categoryZh": "AI / 半導體",
-        "color": "#7c3aed",
-        "items": [
-            {"ticker": "SMH", "name": "VanEck Semiconductor ETF", "nameZh": "VanEck 半導體 ETF", "weight": 10, "expense": "0.35%", "desc": "集中型半導體，重壓 NVIDIA + TSMC", "color": "#8b5cf6"},
-            {"ticker": "AIQ", "name": "Global X AI & Technology ETF", "nameZh": "Global X AI科技 ETF", "weight": 5, "expense": "0.68%", "desc": "廣泛 AI 價值鏈，84+ 持股分散風險", "color": "#a78bfa"},
-        ],
-    },
-    {
-        "category": "Power & Nuclear",
-        "categoryZh": "電力 / 核能",
-        "color": "#059669",
-        "items": [
-            {"ticker": "GRID", "name": "First Trust Smart Grid Infrastructure", "nameZh": "First Trust 智慧電網 ETF", "weight": 8, "expense": "0.56%", "desc": "電網現代化，受惠 AI 資料中心用電需求", "color": "#10b981"},
-            {"ticker": "XLU", "name": "Utilities Select Sector SPDR", "nameZh": "SPDR 公用事業精選 ETF", "weight": 5, "expense": "0.08%", "desc": "防禦型公用事業，提供穩定股息收益", "color": "#34d399"},
-            {"ticker": "NLR", "name": "VanEck Uranium and Nuclear ETF", "nameZh": "VanEck 鈾與核能 ETF", "weight": 4, "expense": "0.56%", "desc": "核能全價值鏈，礦商 + 核電公用事業", "color": "#6ee7b7"},
-        ],
-    },
-    {
-        "category": "GLP-1 & Weight Loss",
-        "categoryZh": "GLP-1 減肥藥",
-        "color": "#dc2626",
-        "items": [
-            {"ticker": "OZEM", "name": "Roundhill GLP-1 & Weight Loss ETF", "nameZh": "Roundhill GLP-1減重 ETF", "weight": 5, "expense": "0.59%", "desc": "純 GLP-1 概念，Eli Lilly + Novo Nordisk", "color": "#ef4444"},
-            {"ticker": "PPH", "name": "VanEck Pharmaceutical ETF", "nameZh": "VanEck 製藥 ETF", "weight": 4, "expense": "0.36%", "desc": "大型藥廠，GLP-1 權重 ~23%，較分散", "color": "#f87171"},
-        ],
-    },
-    {
-        "category": "Cash / Bond Buffer",
-        "categoryZh": "現金 / 債券緩衝",
-        "color": "#78716c",
-        "items": [
-            {"ticker": "BND", "name": "Vanguard Total Bond Market ETF", "nameZh": "Vanguard 全債券市場 ETF", "weight": 4, "expense": "0.03%", "desc": "降低整體波動，逢低加碼的彈藥庫", "color": "#a8a29e"},
-        ],
-    },
-]
-
-ALL_TICKERS = [item["ticker"] for group in PORTFOLIO for item in group["items"]]
+# Category metadata: Chinese name -> (English name, group header color)
+CAT_META: dict[str, tuple[str, str]] = {
+    "核心配置": ("Core Holdings", "#1a3a5c"),
+    "AI / 半導體": ("AI & Semiconductors", "#7c3aed"),
+    "電力 / 核能": ("Power & Nuclear", "#059669"),
+    "GLP-1 減肥藥": ("GLP-1 & Weight Loss", "#dc2626"),
+    "現金 / 債券緩衝": ("Cash / Bond Buffer", "#78716c"),
+}
 
 
-def fetch_all_data(days: int = 365) -> dict:
+def load_portfolio(path: Path | None = None) -> tuple[list[dict], list[str]]:
+    """Load portfolio from JSON and return (PORTFOLIO groups, ticker list).
+
+    Falls back to a minimal default if the file is missing or unreadable.
+    """
+    if path is None:
+        path = Path(__file__).parent / "portfolio.json"
+
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError) as exc:
+        print(f"Warning: could not read {path} ({exc}); using empty portfolio")
+        return [], []
+
+    holdings: list[dict] = raw.get("holdings", [])
+
+    # Group holdings by categoryZh, preserving insertion order
+    groups_map: dict[str, list[dict]] = {}
+    for h in holdings:
+        cat_zh = h["categoryZh"]
+        groups_map.setdefault(cat_zh, []).append(h)
+
+    portfolio: list[dict] = []
+    all_tickers: list[str] = []
+
+    for cat_zh, items in groups_map.items():
+        cat_en, group_color = CAT_META.get(cat_zh, (cat_zh, "#6b7280"))
+        group_items: list[dict] = []
+        for item in items:
+            ticker = item["ticker"]
+            info = yf.Ticker(ticker).info
+            group_items.append({
+                "ticker": ticker,
+                "name": info.get("shortName", ticker),
+                "nameZh": info.get("shortName", ticker),
+                "weight": item["weight"],
+                "expense": info.get("annualReportExpenseRatio", "N/A"),
+                "desc": "",
+                "color": item["color"],
+            })
+            all_tickers.append(ticker)
+
+        portfolio.append({
+            "category": cat_en,
+            "categoryZh": cat_zh,
+            "color": group_color,
+            "items": group_items,
+        })
+
+    return portfolio, all_tickers
+
+
+def fetch_all_data(tickers: list[str], days: int = 365) -> dict:
     """Fetch price history and PE data for all tickers."""
     end = datetime.now()
     start = end - timedelta(days=days)
@@ -67,7 +78,7 @@ def fetch_all_data(days: int = 365) -> dict:
     current_prices = {}
     pe_ratios = {}
 
-    for ticker in ALL_TICKERS:
+    for ticker in tickers:
         print(f"  Fetching {ticker}...")
         df = yf.download(ticker, start=start, end=end, progress=False)
         if isinstance(df.columns, pd.MultiIndex):
@@ -130,16 +141,19 @@ def compute_monthly_returns(price_history: dict) -> dict:
 
 
 def main() -> None:
-    print("Fetching market data...")
-    market = fetch_all_data(365)
+    print("Loading portfolio from portfolio.json...")
+    portfolio, all_tickers = load_portfolio()
 
-    weights = {item["ticker"]: item["weight"] for group in PORTFOLIO for item in group["items"]}
+    print("Fetching market data...")
+    market = fetch_all_data(all_tickers, 365)
+
+    weights = {item["ticker"]: item["weight"] for group in portfolio for item in group["items"]}
     portfolio_series = compute_portfolio_series(market["priceHistory"], weights)
     monthly = compute_monthly_returns(market["priceHistory"])
 
     output = {
         "generatedAt": datetime.now().isoformat(),
-        "portfolio": PORTFOLIO,
+        "portfolio": portfolio,
         "currentPrices": market["currentPrices"],
         "peRatios": market["peRatios"],
         "priceHistory": market["priceHistory"],
