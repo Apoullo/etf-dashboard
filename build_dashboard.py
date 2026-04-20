@@ -467,17 +467,44 @@ function scoreBadge(score) {{
 }}
 
 function signalIcon(sig) {{
-  if (sig === 'bullish') return '<span style="color:#34d399;">&#9650;</span>';
+  if (sig === 'bullish' || sig === 'safe') return '<span style="color:#34d399;">&#9650;</span>';
   if (sig === 'bearish') return '<span style="color:#ef4444;">&#9660;</span>';
-  if (sig === 'caution' || sig === 'warning') return '<span style="color:#f97316;">&#9679;</span>';
+  if (sig === 'caution' || sig === 'warning') return '<span style="color:#f97316;">&#9888;</span>';
   return '<span style="color:#fbbf24;">&#9644;</span>';
 }}
 
+function signalColor(sig) {{
+  if (sig === 'bullish' || sig === 'safe') return '#34d399';
+  if (sig === 'bearish') return '#ef4444';
+  if (sig === 'caution' || sig === 'warning') return '#f97316';
+  return '#fbbf24';
+}}
+
 function signalBg(sig) {{
-  if (sig === 'bullish') return '#34d39918';
+  if (sig === 'bullish' || sig === 'safe') return '#34d39918';
   if (sig === 'bearish') return '#ef444418';
   if (sig === 'caution' || sig === 'warning') return '#f9731618';
   return '#fbbf2418';
+}}
+
+function signalLabel(sig) {{
+  if (sig === 'bullish') return '\u770B\u591A';
+  if (sig === 'bearish') return '\u770B\u7A7A';
+  if (sig === 'safe') return '\u5B89\u5168';
+  if (sig === 'caution') return '\u6CE8\u610F';
+  if (sig === 'warning') return '\u8B66\u793A';
+  return '\u4E2D\u6027';
+}}
+
+function aiSignalBadge(ticker) {{
+  const sig = (AI_SIGNALS.signals || {{}})[ticker];
+  if (!sig || !sig.overall) return '<span style="font-size:11px;color:var(--text3);">--</span>';
+  const s = sig.overall;
+  const c = signalColor(s.signal);
+  const lbl = signalLabel(s.signal);
+  return `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:10px;font-size:11px;font-weight:700;background:${{signalBg(s.signal)}};color:${{c}};border:1px solid ${{c}}33;white-space:nowrap;">
+    ${{signalIcon(s.signal)}} ${{lbl}} ${{s.confidence}}%
+  </span>`;
 }}
 
 const TABS = [
@@ -803,25 +830,62 @@ function showDetail(ticker) {{
     }})()}}
     ${{(() => {{
       const sig = (AI_SIGNALS.signals || {{}})[e.ticker];
-      if (!sig) return '';
-      const agentNames = {{technical: '\u6280\u8853\u9762', fundamental: '\u57FA\u672C\u9762', risk: '\u98A8\u63A7'}};
-      let h = '<h4 style="font-size:14px;margin:16px 0 10px;color:#f5f5f0;">AI \u4EE3\u7406\u4FE1\u865F</h4>';
+      if (!sig) return '<div style="margin-top:16px;padding:16px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;text-align:center;color:var(--text3);font-size:13px;">AI \u5206\u6790\u6578\u64DA\u5C1A\u672A\u7522\u751F\uFF0C\u8ACB\u7B49\u5F85\u4E0B\u6B21\u66F4\u65B0</div>';
+      const agentNames = {{technical: '\u6280\u8853\u5206\u6790\u5E2B', fundamental: '\u57FA\u672C\u9762\u5206\u6790', risk: '\u98A8\u96AA\u7BA1\u7406'}};
+      const agentIcons = {{technical: '&#9670;', fundamental: '&#9632;', risk: '&#9660;'}};
+      let h = '';
+
+      // Overall recommendation - large prominent banner
+      if (sig.overall) {{
+        const ov = sig.overall;
+        const ovColor = signalColor(ov.signal);
+        const ovLabel = signalLabel(ov.signal);
+        h += `<div style="margin:20px 0 16px;padding:20px;background:linear-gradient(135deg,${{signalBg(ov.signal)}},${{ovColor}}12);border:2px solid ${{ovColor}}44;border-radius:14px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+            <div>
+              <div style="font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">AI \u7D9C\u5408\u5EFA\u8B70</div>
+              <div style="display:flex;align-items:center;gap:10px;">
+                <span style="font-size:28px;">${{signalIcon(ov.signal)}}</span>
+                <span style="font-size:22px;font-weight:800;color:${{ovColor}};">${{ovLabel}}</span>
+              </div>
+            </div>
+            <div style="text-align:right;">
+              <div style="font-size:11px;color:var(--text3);margin-bottom:4px;">\u4FE1\u5FC3\u6307\u6578</div>
+              <div style="font-size:28px;font-weight:800;color:${{ovColor}};font-family:monospace;">${{ov.confidence}}%</div>
+            </div>
+          </div>
+          <div style="margin-top:12px;height:6px;background:var(--surface);border-radius:3px;overflow:hidden;">
+            <div style="height:100%;width:${{ov.confidence}}%;background:${{ovColor}};border-radius:3px;transition:width 0.5s;"></div>
+          </div>
+          <div style="font-size:12px;color:var(--text2);margin-top:10px;line-height:1.6;">${{ov.reasoning||''}}</div>
+        </div>`;
+      }}
+
+      // Agent details - 3 columns
+      h += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin-bottom:12px;">';
       const agents = sig.agents || {{}};
       Object.keys(agents).forEach(k => {{
         const a = agents[k];
-        h += `<div style="display:flex;align-items:center;gap:8px;padding:8px 12px;margin-bottom:6px;background:${{signalBg(a.signal)}};border-radius:8px;">
-          ${{signalIcon(a.signal)}}
-          <span style="font-weight:600;font-size:12px;min-width:50px;">${{agentNames[k]||k}}</span>
-          <span style="font-size:12px;color:var(--text2);">${{a.signal}} (${{a.confidence}}%)</span>
-          <span style="font-size:11px;color:var(--text3);margin-left:auto;">${{a.reasoning||''}}</span>
+        const ac = signalColor(a.signal);
+        const al = signalLabel(a.signal);
+        h += `<div style="padding:14px;background:${{signalBg(a.signal)}};border:1px solid ${{ac}}22;border-radius:10px;">
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">
+            <span style="font-size:16px;">${{agentIcons[k]||'&#9679;'}}</span>
+            <span style="font-weight:700;font-size:13px;color:#f5f5f0;">${{agentNames[k]||k}}</span>
+          </div>
+          <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:6px;">
+            ${{signalIcon(a.signal)}}
+            <span style="font-size:16px;font-weight:700;color:${{ac}};">${{al}}</span>
+            <span style="font-size:12px;color:var(--text2);margin-left:auto;">${{a.confidence}}%</span>
+          </div>
+          <div style="height:4px;background:var(--surface);border-radius:2px;overflow:hidden;margin-bottom:8px;">
+            <div style="height:100%;width:${{a.confidence}}%;background:${{ac}};border-radius:2px;"></div>
+          </div>
+          <div style="font-size:11px;color:var(--text2);line-height:1.5;">${{a.reasoning||''}}</div>
         </div>`;
       }});
-      if (sig.overall) {{
-        h += `<div style="margin-top:8px;padding:10px 14px;background:${{signalBg(sig.overall.signal)}};border:1px solid var(--border);border-radius:10px;">
-          <div style="font-size:13px;font-weight:600;">${{signalIcon(sig.overall.signal)}} \u7D9C\u5408\u5EFA\u8B70: ${{sig.overall.signal}} <span style="font-size:11px;font-weight:400;color:var(--text2);">(\u4FE1\u5FC3 ${{sig.overall.confidence}}%)</span></div>
-          <div style="font-size:12px;color:var(--text2);margin-top:4px;">${{sig.overall.reasoning||''}}</div>
-        </div>`;
-      }}
+      h += '</div>';
+
       return h;
     }})()}}
     <button onclick="closeDetail()" style="margin-top:20px;padding:8px 20px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);cursor:pointer;font-size:13px;">關閉</button>
@@ -847,7 +911,12 @@ function renderCatalog() {{
   const arrow = (key) => sortKey===key ? (sortAsc?'&#9650;':'&#9660;') : '';
   let html = '';
 
-  flat.forEach(e => {{ e._score = scoreETF(e); }});
+  flat.forEach(e => {{
+    e._score = scoreETF(e);
+    const _sig = (AI_SIGNALS.signals || {{}})[e.ticker];
+    e._aiSignal = _sig && _sig.overall ? _sig.overall.signal : '';
+    e._aiConf = _sig && _sig.overall ? _sig.overall.confidence : -1;
+  }});
 
   if(viewMode==='table') {{
     html = `<div class="card" style="overflow-x:auto;"><table>
@@ -856,6 +925,7 @@ function renderCatalog() {{
         <th onclick="sortCatalog('ticker')">代碼${{arrow('ticker')}}</th>
         <th>類別</th>
         <th class="right" onclick="sortCatalog('_score')">評分${{arrow('_score')}}</th>
+        <th onclick="sortCatalog('_aiConf')">AI 建議${{arrow('_aiConf')}}</th>
         <th class="right" onclick="sortCatalog('price')">現價${{arrow('price')}}</th>
         <th class="right" onclick="sortCatalog('ret1y')">1Y報酬${{arrow('ret1y')}}</th>
         <th class="right" onclick="sortCatalog('ret6m')">6M${{arrow('ret6m')}}</th>
@@ -878,6 +948,7 @@ function renderCatalog() {{
           ${{!aumOk?'<span style=\"font-size:9px;color:#ef4444;margin-left:3px;\">低AUM</span>':''}}</td>
         <td onclick="showDetail('${{e.ticker}}')" style="font-size:11px;color:${{e.catColor}};white-space:nowrap;">${{e.cat}}</td>
         <td class="right" onclick="showDetail('${{e.ticker}}')"><span style="padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;background:${{badge.bg}};color:${{badge.color}};border:1px solid ${{badge.color}}22;">${{badge.label}}</span></td>
+        <td onclick="showDetail('${{e.ticker}}')">${{aiSignalBadge(e.ticker)}}</td>
         <td class="right mono" onclick="showDetail('${{e.ticker}}')">$${{e.price}}</td>
         <td class="right mono ${{clsPct(e.ret1y)}}" onclick="showDetail('${{e.ticker}}')">${{fmtPct(e.ret1y)}}</td>
         <td class="right mono ${{clsPct(e.ret6m)}}" onclick="showDetail('${{e.ticker}}')">${{fmtPct(e.ret6m)}}</td>
@@ -899,6 +970,7 @@ function renderCatalog() {{
           <span class="mono" style="font-size:16px;font-weight:700;">$${{e.price}}</span>
         </div>
         <div style="font-size:11px;color:var(--text2);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${{e.name}}</div>
+        <div style="margin-top:8px;">${{aiSignalBadge(e.ticker)}}</div>
         <div class="stats" style="margin-top:10px;">
           <div><div class="stat-label">1Y 報酬</div><div class="stat-value ${{clsPct(e.ret1y)}}">${{fmtPct(e.ret1y)}}</div></div>
           <div><div class="stat-label">夏普</div><div class="stat-value" style="color:${{e.sharpe>=1?'#34d399':e.sharpe>=0.5?'var(--text)':'#ef4444'}}">${{fmt(e.sharpe,2)}}</div></div>
